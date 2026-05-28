@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+h5py
+astropy
+pyxsim>=4.0
+soxs>=4.0
+sphviewer2

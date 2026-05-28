@@ -1,0 +1,15 @@
+results/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+.env
+*.hdf5
+*.h5
+*.npy
+*.png
+*.pdf

@@ -6,7 +6,7 @@
 #SBATCH --time=4:00:00
 #SBATCH -o logs/sample_%j.out
 #SBATCH -e logs/sample_%j.err
-#SBATCH -D /vera/u/maoweyssi/Code/VeraWorkspace/tng-xray-pipeline
+#SBATCH -D /vera/u/maoweyssi/Code/VeraWorkspace/tng-xray-pipeline-clean
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=maoweyssi@mpia.de
 

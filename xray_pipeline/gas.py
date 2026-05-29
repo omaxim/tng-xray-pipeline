@@ -217,6 +217,12 @@ def load_gas(
     lum_erg_s[sf_mask]    = 0.0   # star-forming
     lum_erg_s[heat_mask]  = 0.0   # net-heated (GFM_CoolingRate ≥ 0)
 
+    # Match the TNG reference convention: the reference APEC tables weight each
+    # photon by its *observed* energy E_emit/(1+z) = E_emit*a, rather than the
+    # rest-frame energy E_emit.  This introduces a factor of a per photon, so
+    # the reference stores L_x * a.  Multiply here to be consistent.
+    lum_erg_s *= a
+
     if verbose:
         print(f'    lum: total={lum_erg_s.sum():.3e}  max={lum_erg_s.max():.3e} erg/s')
 

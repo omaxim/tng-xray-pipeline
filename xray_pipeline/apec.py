@@ -41,7 +41,7 @@ from .constants import KEV_TO_ERG
 # The 7 metals that TNG tracks individually via GFM_Metals columns 2–8.
 # H and He are handled via cosmic_spec / emission measure — not varied here.
 _TNG_METALS  = ['C', 'N', 'O', 'Ne', 'Mg', 'Si', 'Fe']
-_ABUND_TABLE = 'aspl'   # Asplund et al. (2009)
+_ABUND_TABLE = 'angr'   # Anders & Grevesse (1989) — matches TNG reference convention
 
 # Internal APEC grid parameters
 _APEC_N_BINS  = 500

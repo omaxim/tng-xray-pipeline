@@ -35,8 +35,7 @@ from dataclasses import dataclass
 import numpy as np
 from astropy.constants import m_p, k_B
 
-from .constants import Z_SUN, KPC_TO_CM
-from .apec import get_apec_vapec
+from .constants import KPC_TO_CM
 from ._il import il
 
 # GFM_Metals column indices (TNG convention, same across TNG300/100/50/Cluster)
@@ -180,48 +179,26 @@ def load_gas(
     if verbose and cold_mask.any():
         print(f'    {cold_mask.sum():,} cold particles (T<1×10⁶ K) → lum = 0')
 
-    # ── VAPEC emissivity tables ────────────────────────────────────────────────
-    log_kT_grid, Lambda_c, Lambda_other, Lambda_metals, X_sol, T_lo, T_hi = \
-        get_apec_vapec(emin_kev, emax_kev, zobs=0)
+    # ── Dylan-style APEC table lookup ─────────────────────────────────────────
+    # Uses total metallicity (GFM_Metallicity / Z_solar_AG89) — H+He only in
+    # primary component, everything else scales with Z.  Photon energies are
+    # weighted by observed energy E_emit/(1+z), so no separate × a needed.
+    from .apec import get_dylan_emissivity, Z_SOLAR_AG89
 
-    kT_keV = np.clip(T_K * _K_TO_KEV, T_lo, T_hi)
+    z_snap = 1.0 / a - 1.0
+    kT_keV = np.maximum(T_K * _K_TO_KEV, 1e-4)
     log_kT = np.log10(kT_keV)
 
-    # Continuum + H/He lines — independent of metal abundances
-    Lambda = np.interp(log_kT, log_kT_grid, Lambda_c)
+    Z_met          = gas.get('GFM_Metallicity', np.zeros(n_par))
+    metal_logSolar = np.log10(np.maximum(Z_met / Z_SOLAR_AG89, 1e-6))
 
-    if has_metals:
-        metals = gas['GFM_Metals']   # (N, 10)
-
-        # Per-element contributions: C, N, O, Ne, Mg, Si, Fe (columns 2–8)
-        for i in range(7):
-            Z_i_sol = metals[:, _COL_C + i] / X_sol[i]
-            Lambda  = Lambda + Z_i_sol * np.interp(log_kT, log_kT_grid, Lambda_metals[i])
-
-        # Untracked APEC metals: use Fe abundance as proxy (X/Fe = 1, Nelson+2025)
-        Z_Fe_sol = metals[:, _COL_FE] / X_sol[6]
-        Lambda   = Lambda + Z_Fe_sol * np.interp(log_kT, log_kT_grid, Lambda_other)
-
-    else:
-        # Fallback: distribute total metallicity in solar ratios
-        Z_sol_total = gas['GFM_Metallicity'] / Z_SUN
-        Lambda_all  = np.interp(log_kT, log_kT_grid, Lambda_other)
-        for i in range(7):
-            Lambda_all = Lambda_all + np.interp(log_kT, log_kT_grid, Lambda_metals[i])
-        Lambda = Lambda + Z_sol_total * Lambda_all
-
+    Lambda    = get_dylan_emissivity(log_kT, metal_logSolar, z_snap, emin_kev, emax_kev)
     lum_erg_s = em * Lambda
 
     # Apply all three exclusion criteria from the TNG postprocessing reference
     lum_erg_s[cold_mask]  = 0.0   # T < 1×10⁶ K
     lum_erg_s[sf_mask]    = 0.0   # star-forming
     lum_erg_s[heat_mask]  = 0.0   # net-heated (GFM_CoolingRate ≥ 0)
-
-    # Match the TNG reference convention: the reference APEC tables weight each
-    # photon by its *observed* energy E_emit/(1+z) = E_emit*a, rather than the
-    # rest-frame energy E_emit.  This introduces a factor of a per photon, so
-    # the reference stores L_x * a.  Multiply here to be consistent.
-    lum_erg_s *= a
 
     if verbose:
         print(f'    lum: total={lum_erg_s.sum():.3e}  max={lum_erg_s.max():.3e} erg/s')

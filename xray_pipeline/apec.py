@@ -34,9 +34,17 @@ the Nelson et al. (2025) TNG-Cluster X-ray methodology.
 """
 
 import functools
+import os
+
 import numpy as np
 
 from .constants import KEV_TO_ERG
+
+# Path to Dylan's pre-built APEC table (generated once by build_apec_table.py)
+_DYLAN_TABLE_PATH = os.path.join(os.path.dirname(__file__), 'apec_dylan.hdf5')
+
+# AG89 solar metallicity — must match the value used when building the table
+Z_SOLAR_AG89 = 0.023
 
 # The 7 metals that TNG tracks individually via GFM_Metals columns 2–8.
 # H and He are handled via cosmic_spec / emission measure — not varied here.
@@ -121,3 +129,69 @@ def get_apec_vapec(
         float(sm.Tvals[0]),
         float(sm.Tvals[-1]),
     )
+
+
+# ── Dylan-style table lookup ──────────────────────────────────────────────────
+
+@functools.lru_cache(maxsize=1)
+def _load_dylan_table(band: str) -> tuple:
+    """Load and cache Dylan's APEC table for one band."""
+    import h5py
+    if not os.path.exists(_DYLAN_TABLE_PATH):
+        raise FileNotFoundError(
+            f'Dylan APEC table not found: {_DYLAN_TABLE_PATH}\n'
+            f'Run:  python build_apec_table.py'
+        )
+    with h5py.File(_DYLAN_TABLE_PATH, 'r') as f:
+        grid = {
+            'redshift': f['redshift'][:],
+            'temp':     f['temp'][:],
+            'metal':    f['metal'][:],
+        }
+        key  = f'emis_{band}'
+        if key not in f:
+            raise KeyError(f'Band "{key}" not in {_DYLAN_TABLE_PATH}. '
+                           f'Available: {[k for k in f.keys() if k.startswith("emis")]}')
+        table = f[key][:]   # (n_z, n_temp, n_metal)
+    return table, grid
+
+
+def get_dylan_emissivity(
+    log_kT        : np.ndarray,
+    metal_logSolar: np.ndarray,
+    z_snap        : float,
+    emin_kev      : float = 0.5,
+    emax_kev      : float = 5.0,
+) -> np.ndarray:
+    """
+    Interpolate Dylan's APEC table per particle.
+
+    The table already includes the 1/(1+z) photon-energy factor, so no
+    additional scale-factor correction is needed in gas.py.
+
+    Parameters
+    ----------
+    log_kT         : (N,) ndarray   log10(kT [keV]) per particle
+    metal_logSolar : (N,) ndarray   log10(Z / Z_AG89) per particle
+    z_snap         : float          snapshot redshift
+    emin_kev, emax_kev : float      energy band (must match a band in the table)
+
+    Returns
+    -------
+    Lambda : (N,) ndarray   emissivity [erg cm³ s⁻¹] per unit EM
+    """
+    from scipy.ndimage import map_coordinates
+
+    band  = f'{emin_kev:.1f}-{emax_kev:.1f}kev'
+    table, grid = _load_dylan_table(band)
+
+    n = len(log_kT)
+
+    # Fractional indices into each grid axis
+    iz = float(np.interp(z_snap,        grid['redshift'], np.arange(len(grid['redshift']))))
+    it = np.interp(log_kT,         grid['temp'],     np.arange(len(grid['temp'])))
+    im = np.interp(metal_logSolar, grid['metal'],    np.arange(len(grid['metal'])))
+
+    coords = np.vstack([np.full(n, iz), it, im])
+    Lambda = map_coordinates(table, coords, order=3, mode='nearest')
+    return np.maximum(Lambda, 0.0)
